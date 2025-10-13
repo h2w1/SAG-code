@@ -56,9 +56,6 @@ pip install -r envs/alfworld/requirements.txt
 ### Install ALFWorld from source
 Follow the official instructions and prefer the source installation:
 - Repo: https://github.com/alfworld/alfworld
-
-> Tip: Some ALFWorld setups require additional assets or simulators. Please follow the upstream README carefully.
-
 ---
 
 ## 2) WebShop
@@ -78,8 +75,6 @@ pip install -r envs/webshop/requirements.txt
 Follow the official instructions (install from source is recommended):
 - Repo: https://github.com/princeton-nlp/WebShop
 
-> Tip: If the environment name was previously `babyai` in your notes, you can keep using `webshop` here to avoid confusion.
-
 ---
 
 ## 3) BabyAI
@@ -98,8 +93,6 @@ pip install -r envs/babyai/requirements.txt
 ### Install BabyAI from source
 Follow the official instructions to install the benchmark:
 - Repo: https://github.com/mila-iqia/babyai
-
-> Tip: BabyAI may require specific `gym` versions depending on the branch. Use the upstream README’s version matrix if you encounter issues.
 
 ---
 
