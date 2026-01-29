@@ -1,5 +1,4 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import argparse
 import sys
 import re
@@ -807,8 +806,7 @@ BASE_PROMPT_FEWSHOT = prompt1
 def webshop_run(idx, prompt, to_print=True):
     """
     return:
-      reward, total_in, total_out, traj_len, amb_logs, icl_example,
-      success_sft_samples(list), steps_used  🔴 steps_used 추가
+      reward, total_in, total_out, traj_len, amb_logs, icl_example, success_sft_samples(list)
     """
     action = 'reset'
     init_prompt = prompt
@@ -823,11 +821,7 @@ def webshop_run(idx, prompt, to_print=True):
     # ✅ 성공 시에만 반환할 SFT 샘플들(한 에피소드 분)
     episode_sft_samples = []
 
-    steps_used = 0  # 🔴 step 카운터
-
     for step_i in range(15):
-        steps_used = step_i + 1  # 현재까지 사용한 step 수
-
         try:
             observation, reward, done = env.step(idx, action)
         except AssertionError:
@@ -859,17 +853,7 @@ def webshop_run(idx, prompt, to_print=True):
             icl_example = None
             if reward >= 1.0 and ICL_CFG["enable"]:
                 icl_example = make_icl_example_from_prompt_ctx(prompt_ctx)
-            # 🔴 steps_used 함께 반환
-            return (
-                reward,
-                total_in,
-                total_out,
-                traj_len,
-                step_amb_logs,
-                icl_example,
-                episode_sft_samples,
-                steps_used,
-            )
+            return reward, total_in, total_out, traj_len, step_amb_logs, icl_example, episode_sft_samples
 
         # ✅ 1) ITEM에서 옵션 휴리스틱
         heur_action = heuristic_option_click(env, idx, observation, instr_keywords)
@@ -956,10 +940,8 @@ def webshop_run(idx, prompt, to_print=True):
                 print("[GRAMMAR] search[...] not allowed on page_type=item. Force action -> click[Back to Search]")
             action = 'click[Back to Search]'
 
-    # max step까지 가도 done 안되면 실패 종료
     traj_len = len(init_prompt + prompt_ctx)
-    steps_used = 15
-    return 0.0, total_in, total_out, traj_len, step_amb_logs, None, [], steps_used
+    return 0.0, total_in, total_out, traj_len, step_amb_logs, None, []
 
 # =========================================================
 # 전체 에피소드 반복 + 통계/저장 + ICL + (성공10개마다 LoRA SFT)
@@ -979,8 +961,6 @@ def run_episodes(base_prompt, n=50, seed: int = 42):
     input_outputs = []
     run_start_time = time.time()
 
-    success_steps = []  # 🔴 성공 에피소드의 step 수 저장
-
     for i in range(n):
         print('-----------------')
         print(i)
@@ -990,8 +970,7 @@ def run_episodes(base_prompt, n=50, seed: int = 42):
 
         start_ep = time.time()
         try:
-            # 🔴 steps_used 함께 받기
-            r, in_tok, out_tok, traj_len, amb_logs, icl_example, sft_samples, steps_used = webshop_run(
+            r, in_tok, out_tok, traj_len, amb_logs, icl_example, sft_samples = webshop_run(
                 f'fixed_{i}', prompt, to_print=True
             )
             total_in_tok += in_tok
@@ -999,8 +978,6 @@ def run_episodes(base_prompt, n=50, seed: int = 42):
 
             # ✅ 성공이면 ICL 업데이트 + SFT 샘플 적재 + (성공10개마다) micro-train
             if r >= 1.0:
-                success_steps.append(steps_used)  # 🔴 성공 step 기록
-
                 if icl_example and ICL_CFG["enable"]:
                     SUCCESS_ICL.append(icl_example)
                     print(f"[ICL] Added success example. Buffer size = {len(SUCCESS_ICL)}")
@@ -1026,7 +1003,6 @@ def run_episodes(base_prompt, n=50, seed: int = 42):
                 "traj_length_chars": int(traj_len),
                 "time_sec": ep_time,
                 "ambiguity_logs": amb_logs,
-                "steps_used": int(steps_used),   # 🔴 per-ep step 수 저장
             })
         except AssertionError:
             r, in_tok, out_tok, traj_len, amb_logs = 0.0, 0, 0, 0, []
@@ -1044,7 +1020,6 @@ def run_episodes(base_prompt, n=50, seed: int = 42):
                 "traj_length_chars": 0,
                 "time_sec": ep_time,
                 "ambiguity_logs": amb_logs,
-                "steps_used": 0,
             })
 
         print(f"Episode {i} took {ep_time:.2f} seconds")
@@ -1072,9 +1047,6 @@ def run_episodes(base_prompt, n=50, seed: int = 42):
     avg_gen_tokens_ep = total_gen_tokens / total_cnt if total_cnt > 0 else 0.0
     avg_total_tokens_ep = total_tokens / total_cnt if total_cnt > 0 else 0.0
 
-    # 🔴 성공 에피소드 평균 step 수
-    avg_success_steps = (sum(success_steps) / len(success_steps)) if success_steps else 0.0
-
     summary = {
         "dataset": "WebShop",
         "split": "test",
@@ -1098,10 +1070,6 @@ def run_episodes(base_prompt, n=50, seed: int = 42):
         "total_time_sec": total_time,
         "avg_time_per_episode_sec": avg_time_ep,
 
-        # 🔴 성공 에피소드 step 통계
-        "avg_success_steps": avg_success_steps,
-        "success_steps": [int(s) for s in success_steps],
-
         "episodes": input_outputs,
     }
 
@@ -1112,7 +1080,6 @@ def run_episodes(base_prompt, n=50, seed: int = 42):
     print(f"Total Tokens        : {total_tokens}")
     print(f"SFT buffer          : {len(SFT_BUFFER)} | success_eps_for_sft={SUCCESS_EPISODE_COUNT}")
     print(f"Actor LoRA enabled  : {PEFT_READY}")
-    print(f"Avg success steps   : {avg_success_steps:.2f}")  # 🔴 콘솔에도 출력
 
     os.makedirs("result", exist_ok=True)
     model_tag = MODEL_NAME.split('/')[-1] if isinstance(MODEL_NAME, str) else "unknown_model"
