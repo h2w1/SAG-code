@@ -86,23 +86,9 @@ Please install them separately before installing other dependencies.
 
 Example:
 
-```bash
-git clone https://github.com/mila-iqia/babyai.git
-cd babyai
-pip install -e .
-
-# If using babyai-text and gym-minigrid:
-git clone <URL_TO_babyai-text>
-cd babyai-text
-pip install -e .
-pip install -e gym-minigrid
-
-
-### Create & activate environment
-```bash
-conda create -n babyai python=3.9 -y
-conda activate babyai
-```
+### Install WebShop from source
+Follow the official instructions (install from source is recommended):
+- Repo: https://github.com/flowersteam/Grounding_LLMs_with_online_RL
 
 ### Install Python dependencies
 ```bash

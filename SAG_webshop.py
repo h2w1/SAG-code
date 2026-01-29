@@ -1,5 +1,4 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import argparse
 import sys
 import re
@@ -19,7 +18,7 @@ from collections import deque
 from pathlib import Path
 
 # =========================
-# 전역 시드/결정론 설정
+# Global seed / determinism
 # =========================
 SEED = 42
 def set_global_seed(seed: int):
@@ -36,7 +35,7 @@ def set_global_seed(seed: int):
 
 set_global_seed(SEED)
 
-# ✅ 토큰 집계를 위한 전역 변수
+# Global token counters for accounting
 TOTAL_PROMPT_TOKENS = 0
 TOTAL_GEN_TOKENS = 0
 
@@ -46,7 +45,7 @@ def _add_tokens(prompt_tokens: int, gen_tokens: int):
     TOTAL_GEN_TOKENS += int(gen_tokens)
 
 # =========================
-# CLI 인자
+# CLI args
 # =========================
 parser = argparse.ArgumentParser()
 parser.add_argument('--port', required=True, type=int)
@@ -58,7 +57,7 @@ WEBSHOP_URL = f"http://localhost:{args.port}"
 MODEL_NAME = args.model_name_or_path
 
 # =========================
-# 모델 로드
+# Load model
 # =========================
 use_bf16 = torch.cuda.is_available() and getattr(torch.cuda, "is_bf16_supported", lambda: False)()
 dtype = torch.bfloat16 if use_bf16 else torch.float16
@@ -74,15 +73,15 @@ if tokenizer.pad_token_id is None:
     tokenizer.pad_token_id = tokenizer.eos_token_id
 
 model.eval()
-DEVICE = next(model.parameters()).device  # 안전하게 실제 파라미터 디바이스 가져오기
+DEVICE = next(model.parameters()).device  # safely get actual device of parameters
 
 # =========================
-# LLM 호출
+# LLM call
 # =========================
 def llm(prompt: str, stop: List[str] = ["\n"], max_new_tokens: int = 100):
     """
-    공통 LLM 호출 유틸
-    return: (text, input_tokens, output_tokens)
+    Common LLM call utility.
+    Returns: (text, input_tokens, output_tokens)
     """
     inputs = tokenizer(prompt, return_tensors="pt", add_special_tokens=False).to(DEVICE)
     prompt_tokens = int(inputs.input_ids.shape[1])
@@ -91,7 +90,7 @@ def llm(prompt: str, stop: List[str] = ["\n"], max_new_tokens: int = 100):
         out = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
-            do_sample=False,  # greedy
+            do_sample=False,  # greedy decoding
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
             use_cache=True,
@@ -114,7 +113,7 @@ def llm(prompt: str, stop: List[str] = ["\n"], max_new_tokens: int = 100):
     return text.strip(), prompt_tokens, gen_tokens
 
 # =========================================================
-# 🔵 SAG-style ambiguity 계산 유틸
+# SAG-style ambiguity utilities
 # =========================================================
 
 BRACKET_RE = re.compile(r"\[([^\[\]]+)\]")
@@ -214,7 +213,7 @@ def ambiguity_signals_from_candidates(prompt: str, candidates):
     }
 
 # =========================================================
-# 크리틱 트리거 규칙
+# Critic trigger rule
 # =========================================================
 CRITIC_CFG = {
     "enable": True,
@@ -237,7 +236,7 @@ def critic_suggest_action(amb):
     return amb["topk"][0][0]
 
 # =========================================================
-# WebShop용 LLM 기반 Critic (짧은 프롬프트)
+# WebShop LLM-based critic (short prompt)
 # =========================================================
 WEB_CRITIC_SYS_PROMPT = """You are a short, decisive assistant for a WebShop shopping agent.
 
@@ -327,7 +326,7 @@ def critic_llm_decide_action(
     return next_act, prompt_tokens, gen_tokens
 
 # =========================================================
-# WebShop env 및 유틸
+# WebShop env and utilities
 # =========================================================
 ACTION_TO_TEMPLATE = {
     'Description': 'description_page.html',
@@ -483,7 +482,7 @@ class webshopEnv:
 env = webshopEnv()
 
 # =========================================================
-# 인스트럭션 키워드 추출 + 옵션 휴리스틱
+# Instruction keyword extraction + option heuristic
 # =========================================================
 def extract_instruction(observation: str) -> str:
     lines = observation.splitlines()
@@ -510,6 +509,10 @@ def extract_keywords_from_instruction(instr: str):
     return [t for t in tokens if t not in stop and len(t) > 1]
 
 def heuristic_option_click(env, session_id: str, observation: str, instr_keywords):
+    """
+    Simple heuristic for selecting item options directly from the item page
+    when they clearly match instruction keywords.
+    """
     page_type = env.sessions.get(session_id, {}).get("page_type", None)
     if page_type != "item":
         return None
@@ -536,7 +539,7 @@ def heuristic_option_click(env, session_id: str, observation: str, instr_keyword
     return None
 
 # =========================================================
-# ICL 설정 및 유틸
+# ICL setup and utilities
 # =========================================================
 ICL_CFG = {
     "enable": True,
@@ -562,7 +565,7 @@ def build_icl_block() -> str:
     return "\n\n# Additional successful examples\n" + "\n\n".join(chosen) + "\n\n"
 
 # =========================================================
-# ✅ Actor LoRA SFT (성공 10개마다 micro-train)
+# Actor LoRA SFT (micro-train every 10 successful episodes)
 # =========================================================
 SAVE_DIR = Path("./trajectories")
 SAVE_DIR.mkdir(parents=True, exist_ok=True)
@@ -572,17 +575,17 @@ SFT_DATA_PATH.touch(exist_ok=True)
 SFT_CFG = {
     "enable": True,
 
-    # 수집
+    # Collection
     "buffer_max": 50000,
-    "max_prompt_chars": 8000,   # 너무 긴 프롬프트는 뒷부분 유지
-    "drop_think": False,        # think도 학습시키려면 False
+    "max_prompt_chars": 8000,   # keep tail if prompt is too long
+    "drop_think": False,        # set True if you want to exclude think[...] targets
     "min_prompt_chars": 50,
 
-    # 트리거
-    "train_every_success": 10,  # ✅ 성공 10개마다 학습
-    "min_buffer_to_train": 200, # 너무 적으면 스킵 (에피소드당 step이 적어도 몇백은 금방 쌓임)
+    # Trigger
+    "train_every_success": 10,  # micro-train every 10 successful episodes
+    "min_buffer_to_train": 200, # skip training if too few samples
 
-    # 학습 하이퍼
+    # Training hyperparameters
     "max_seq_len": 1024,
     "train_steps": 80,
     "train_batch_size": 2,
@@ -608,7 +611,8 @@ def _clip_tail(s: str, n: int) -> str:
 
 def maybe_enable_lora():
     """
-    model을 peft LoRA로 감싸기. 이미 감싸져 있으면 그대로.
+    Wrap the model with PEFT LoRA if available.
+    If already wrapped, do nothing.
     """
     global model, PEFT_READY
     if not SFT_CFG["enable"]:
@@ -620,7 +624,7 @@ def maybe_enable_lora():
         PEFT_READY = False
         return
 
-    # 이미 peft면 skip
+    # Already a PEFT model
     if hasattr(model, "peft_config"):
         PEFT_READY = True
         return
@@ -647,8 +651,9 @@ def append_sft_samples(samples: List[dict]):
 
 def build_sft_sample(state_prompt: str, target_action: str, episode: str, step: int) -> Optional[dict]:
     """
-    state_prompt는 보통 "... \n\nAction:" 으로 끝나는 상태.
-    target_action은 "search[...]" 또는 "click[...]" 등.
+    Build a single SFT sample:
+    - state_prompt typically ends with "... \n\nAction:"
+    - target_action is "search[...]" or "click[...]" etc.
     """
     sp = (state_prompt or "").strip()
     ta = (target_action or "").strip()
@@ -668,9 +673,9 @@ def build_sft_sample(state_prompt: str, target_action: str, episode: str, step: 
 
 def _batch_tokenize(ex_list: List[dict]) -> Dict[str, torch.Tensor]:
     """
-    causal LM supervised fine-tuning:
-    - input + " " + target 를 토크나이즈
-    - labels에서 prompt 부분은 -100 마스킹
+    Causal LM supervised fine-tuning:
+    - tokenize input + " " + target
+    - mask prompt tokens with -100 in labels
     """
     texts = []
     prompts = []
@@ -705,7 +710,7 @@ def _batch_tokenize(ex_list: List[dict]) -> Dict[str, torch.Tensor]:
 
 def micro_sft_train():
     """
-    성공 데이터 누적 후 짧게 학습(LoRA).
+    Short micro-training using collected successful-episode data (LoRA only).
     """
     if not SFT_CFG["enable"]:
         return
@@ -748,7 +753,7 @@ def micro_sft_train():
     print("[SFT] Micro-training done.")
 
 # =========================================================
-# 샘플 프롬프트들 (few-shot)
+# Few-shot prompt examples
 # =========================================================
 prompt1 = """Webshop 
 Instruction:  
@@ -802,13 +807,13 @@ Action: click[Buy Now]
 BASE_PROMPT_FEWSHOT = prompt1
 
 # =========================================================
-# 에피소드 실행 (+ ICL + SFT 샘플 수집)
+# Single episode rollout (+ ICL + SFT sampling)
 # =========================================================
 def webshop_run(idx, prompt, to_print=True):
     """
-    return:
-      reward, total_in, total_out, traj_len, amb_logs, icl_example,
-      success_sft_samples(list), steps_used  🔴 steps_used 추가
+    Run a single WebShop episode.
+    Returns:
+      reward, total_in, total_out, traj_len, amb_logs, icl_example, success_sft_samples(list)
     """
     action = 'reset'
     init_prompt = prompt
@@ -820,14 +825,10 @@ def webshop_run(idx, prompt, to_print=True):
     instr_text = None
     instr_keywords = []
 
-    # ✅ 성공 시에만 반환할 SFT 샘플들(한 에피소드 분)
+    # SFT samples collected only from successful episodes
     episode_sft_samples = []
 
-    steps_used = 0  # 🔴 step 카운터
-
     for step_i in range(15):
-        steps_used = step_i + 1  # 현재까지 사용한 step 수
-
         try:
             observation, reward, done = env.step(idx, action)
         except AssertionError:
@@ -847,37 +848,27 @@ def webshop_run(idx, prompt, to_print=True):
             print(f'Action: {action}\nObservation: {observation}\n')
             sys.stdout.flush()
 
-        # prompt 업데이트
+        # update prompt context
         if step_i:
             prompt_ctx += f' {action}\nObservation: {observation}\n\nAction:'
         else:
             prompt_ctx += f'{observation}\n\nAction:'
 
-        # 종료면 반환
+        # if terminal, return
         if done:
             traj_len = len(init_prompt + prompt_ctx)
             icl_example = None
             if reward >= 1.0 and ICL_CFG["enable"]:
                 icl_example = make_icl_example_from_prompt_ctx(prompt_ctx)
-            # 🔴 steps_used 함께 반환
-            return (
-                reward,
-                total_in,
-                total_out,
-                traj_len,
-                step_amb_logs,
-                icl_example,
-                episode_sft_samples,
-                steps_used,
-            )
+            return reward, total_in, total_out, traj_len, step_amb_logs, icl_example, episode_sft_samples
 
-        # ✅ 1) ITEM에서 옵션 휴리스틱
+        # 1) Heuristic option click on item page
         heur_action = heuristic_option_click(env, idx, observation, instr_keywords)
         if heur_action is not None:
             if to_print:
                 print(f"[HEURISTIC] Force option click -> {heur_action}")
 
-            # ✅ SFT 샘플 수집: 이 step에서 모델이 보게 될 state_prompt
+            # SFT sample: state prompt at this step, heuristic action as target
             state_prompt = (init_prompt + prompt_ctx).strip()
             sample = build_sft_sample(state_prompt, heur_action, episode=str(idx), step=step_i)
             if sample is not None:
@@ -886,7 +877,7 @@ def webshop_run(idx, prompt, to_print=True):
             action = heur_action
             continue
 
-        # SAG candidate용 obs
+        # SAG candidates observation
         obs_for_candidates = observation
         if observation in ('OK.', 'Invalid action!') and last_valid_observation is not None:
             obs_for_candidates = last_valid_observation
@@ -902,7 +893,7 @@ def webshop_run(idx, prompt, to_print=True):
                     print(f"      {a}  q={p:.3f}")
                 print()
 
-        # ✅ 2) critic
+        # 2) Critic
         used_critic = False
         if should_call_critic(amb):
             crit_act, cin_tok, cout_tok = critic_llm_decide_action(
@@ -924,7 +915,7 @@ def webshop_run(idx, prompt, to_print=True):
                     )
                     print(f"[CRITIC] LLM suggested action: {crit_act}")
 
-                # ✅ SFT 샘플 수집
+                # SFT sample: critic-chosen action
                 state_prompt = (init_prompt + prompt_ctx).strip()
                 sample = build_sft_sample(state_prompt, crit_act, episode=str(idx), step=step_i)
                 if sample is not None:
@@ -932,7 +923,7 @@ def webshop_run(idx, prompt, to_print=True):
 
                 action = crit_act
 
-        # ✅ 3) actor LLM
+        # 3) Actor LLM
         if not used_critic:
             full_ctx = init_prompt + prompt_ctx
             max_len = 6400
@@ -943,32 +934,30 @@ def webshop_run(idx, prompt, to_print=True):
             total_out += out_tok
             action = text.lstrip(' ')
 
-            # ✅ SFT 샘플 수집: actor가 고른 action을 target으로
+            # SFT sample: actor-chosen action
             state_prompt = (init_prompt + prompt_ctx).strip()
             sample = build_sft_sample(state_prompt, action, episode=str(idx), step=step_i)
             if sample is not None:
                 episode_sft_samples.append(sample)
 
-        # ✅ 4) grammar guard
+        # 4) Grammar guard
         page_type = env.sessions.get(idx, {}).get("page_type", None)
         if action.startswith('search[') and page_type == 'item':
             if to_print:
                 print("[GRAMMAR] search[...] not allowed on page_type=item. Force action -> click[Back to Search]")
             action = 'click[Back to Search]'
 
-    # max step까지 가도 done 안되면 실패 종료
     traj_len = len(init_prompt + prompt_ctx)
-    steps_used = 15
-    return 0.0, total_in, total_out, traj_len, step_amb_logs, None, [], steps_used
+    return 0.0, total_in, total_out, traj_len, step_amb_logs, None, []
 
 # =========================================================
-# 전체 에피소드 반복 + 통계/저장 + ICL + (성공10개마다 LoRA SFT)
+# Run multiple episodes + stats / saving + ICL + LoRA SFT
 # =========================================================
-def run_episodes(base_prompt, n=50, seed: int = 42):
+def run_episodes(base_prompt, n=200, seed: int = 42):
     global SUCCESS_EPISODE_COUNT
     set_global_seed(seed)
 
-    # ✅ LoRA 준비 (peft 있으면 model을 감쌈)
+    # Prepare LoRA (wrap model if PEFT is available)
     maybe_enable_lora()
     if SFT_CFG["enable"] and not PEFT_READY:
         print("[SFT] peft not found -> actor LoRA training disabled (data collection only).")
@@ -979,8 +968,6 @@ def run_episodes(base_prompt, n=50, seed: int = 42):
     input_outputs = []
     run_start_time = time.time()
 
-    success_steps = []  # 🔴 성공 에피소드의 step 수 저장
-
     for i in range(n):
         print('-----------------')
         print(i)
@@ -990,17 +977,14 @@ def run_episodes(base_prompt, n=50, seed: int = 42):
 
         start_ep = time.time()
         try:
-            # 🔴 steps_used 함께 받기
-            r, in_tok, out_tok, traj_len, amb_logs, icl_example, sft_samples, steps_used = webshop_run(
+            r, in_tok, out_tok, traj_len, amb_logs, icl_example, sft_samples = webshop_run(
                 f'fixed_{i}', prompt, to_print=True
             )
             total_in_tok += in_tok
             total_out_tok += out_tok
 
-            # ✅ 성공이면 ICL 업데이트 + SFT 샘플 적재 + (성공10개마다) micro-train
+            # On success: update ICL + SFT buffer + micro-train every N successes
             if r >= 1.0:
-                success_steps.append(steps_used)  # 🔴 성공 step 기록
-
                 if icl_example and ICL_CFG["enable"]:
                     SUCCESS_ICL.append(icl_example)
                     print(f"[ICL] Added success example. Buffer size = {len(SUCCESS_ICL)}")
@@ -1026,7 +1010,6 @@ def run_episodes(base_prompt, n=50, seed: int = 42):
                 "traj_length_chars": int(traj_len),
                 "time_sec": ep_time,
                 "ambiguity_logs": amb_logs,
-                "steps_used": int(steps_used),   # 🔴 per-ep step 수 저장
             })
         except AssertionError:
             r, in_tok, out_tok, traj_len, amb_logs = 0.0, 0, 0, 0, []
@@ -1044,7 +1027,6 @@ def run_episodes(base_prompt, n=50, seed: int = 42):
                 "traj_length_chars": 0,
                 "time_sec": ep_time,
                 "ambiguity_logs": amb_logs,
-                "steps_used": 0,
             })
 
         print(f"Episode {i} took {ep_time:.2f} seconds")
@@ -1072,9 +1054,6 @@ def run_episodes(base_prompt, n=50, seed: int = 42):
     avg_gen_tokens_ep = total_gen_tokens / total_cnt if total_cnt > 0 else 0.0
     avg_total_tokens_ep = total_tokens / total_cnt if total_cnt > 0 else 0.0
 
-    # 🔴 성공 에피소드 평균 step 수
-    avg_success_steps = (sum(success_steps) / len(success_steps)) if success_steps else 0.0
-
     summary = {
         "dataset": "WebShop",
         "split": "test",
@@ -1098,10 +1077,6 @@ def run_episodes(base_prompt, n=50, seed: int = 42):
         "total_time_sec": total_time,
         "avg_time_per_episode_sec": avg_time_ep,
 
-        # 🔴 성공 에피소드 step 통계
-        "avg_success_steps": avg_success_steps,
-        "success_steps": [int(s) for s in success_steps],
-
         "episodes": input_outputs,
     }
 
@@ -1112,7 +1087,6 @@ def run_episodes(base_prompt, n=50, seed: int = 42):
     print(f"Total Tokens        : {total_tokens}")
     print(f"SFT buffer          : {len(SFT_BUFFER)} | success_eps_for_sft={SUCCESS_EPISODE_COUNT}")
     print(f"Actor LoRA enabled  : {PEFT_READY}")
-    print(f"Avg success steps   : {avg_success_steps:.2f}")  # 🔴 콘솔에도 출력
 
     os.makedirs("result", exist_ok=True)
     model_tag = MODEL_NAME.split('/')[-1] if isinstance(MODEL_NAME, str) else "unknown_model"
@@ -1121,11 +1095,11 @@ def run_episodes(base_prompt, n=50, seed: int = 42):
     with open(save_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
 
-    print(f"결과 저장 완료: {save_path}")
-    print(f"SFT 데이터 저장: {SFT_DATA_PATH}")
+    print(f"Results saved to: {save_path}")
+    print(f"SFT data saved to: {SFT_DATA_PATH}")
 
     return rs
 
-# 실행 예시
+# Entry point
 if __name__ == "__main__":
     res1 = run_episodes(BASE_PROMPT_FEWSHOT, n=500, seed=42)
