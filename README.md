@@ -1,11 +1,11 @@
 
-# Confidence-gated Intervention for LLM Reasoning in Multi-Step Environments with Player–Coach Agents
+# Selective Critique is Enough: Cost-Aware Feedback for LLM Agents in Long-Horizon Interactive Environments
 
 This repository contains the **reproduction notebooks** and minimal environment setup for three benchmarks used in our paper:
 
-- **ALFWorld** – household instruction following in simulated environments
-- **WebShop** – goal‑oriented web browsing / shopping
-- **BabyAI** – grid‑world language‑conditioned tasks
+- **ALFWorld** – household instruction following in simulated environments [site](https://alfworld.github.io/)
+- **WebShop** – goal‑oriented web browsing / shopping [site](https://webshop-pnlp.github.io/)
+- **BabyAI** – grid‑world language‑conditioned tasks [site](https://github.com/flowersteam/Grounding_LLMs_with_online_RL)
 
 Each benchmark is isolated in its own Conda environment to avoid dependency conflicts. We keep the `requirements.txt` minimal and install the official benchmark packages **from source** following their instructions.
 
@@ -36,7 +36,6 @@ Each benchmark is isolated in its own Conda environment to avoid dependency conf
 
 - **Conda** (Miniconda or Anaconda)
 - **Python 3.9** (we use this version in all commands below)
-- A C/C++ build toolchain may be required by some upstream repos
 
 ---
 
@@ -47,16 +46,17 @@ Each benchmark is isolated in its own Conda environment to avoid dependency conf
 conda create -n alfworld python=3.9 -y
 conda activate alfworld
 ```
+### Install ALFWorld from source
+Follow the official instructions and prefer the source installation:
+- Repo: https://github.com/alfworld/alfworld
+
 
 ### Install Python dependencies
 ```bash
 pip install -r envs/alfworld/requirements.txt
 ```
-
-### Install ALFWorld from source
-Follow the official instructions and prefer the source installation:
-- Repo: https://github.com/alfworld/alfworld
 ---
+
 
 ## 2) WebShop
 
@@ -65,19 +65,38 @@ Follow the official instructions and prefer the source installation:
 conda create -n webshop python=3.9 -y
 conda activate webshop
 ```
+### Install WebShop from source
+Follow the official instructions (install from source is recommended):
+- Repo: https://github.com/princeton-nlp/WebShop
 
 ### Install Python dependencies
 ```bash
 pip install -r envs/webshop/requirements.txt
 ```
 
-### Install WebShop from source
-Follow the official instructions (install from source is recommended):
-- Repo: https://github.com/princeton-nlp/WebShop
 
 ---
 
 ## 3) BabyAI
+
+### Install BabyAI environment
+
+This codebase relies on BabyAI and its text-based extensions.
+Please install them separately before installing other dependencies.
+
+Example:
+
+```bash
+git clone https://github.com/mila-iqia/babyai.git
+cd babyai
+pip install -e .
+
+# If using babyai-text and gym-minigrid:
+git clone <URL_TO_babyai-text>
+cd babyai-text
+pip install -e .
+pip install -e gym-minigrid
+
 
 ### Create & activate environment
 ```bash
@@ -90,23 +109,12 @@ conda activate babyai
 pip install -r envs/babyai/requirements.txt
 ```
 
-### Install BabyAI from source
-Follow the official instructions to install the benchmark:
-- Repo: https://github.com/mila-iqia/babyai
+
 
 ---
 
-## 4) Running the Notebooks
+## 4) Running the python code
 
-After finishing the setup for a benchmark, start Jupyter and select the corresponding Conda kernel.
 
-```bash
-# Example for ALFWorld
-conda activate alfworld
-python -m ipykernel install --user --name alfworld --display-name "Python (alfworld)"
-jupyter notebook  # or: jupyter lab
-```
-
-Then open the notebook file (`ALFWorld.ipynb`, `Webshop.ipynb`, or `BabyAI.ipynb`) and run all cells.
 
 ---
