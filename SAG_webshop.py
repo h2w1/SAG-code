@@ -866,7 +866,7 @@ def webshop_run(idx, prompt, to_print=True):
         heur_action = heuristic_option_click(env, idx, observation, instr_keywords)
         if heur_action is not None:
             if to_print:
-                print(f"[HEURISTIC] Force option click -> {heur_action}")
+                print(f"Force option click -> {heur_action}")
 
             # SFT sample: state prompt at this step, heuristic action as target
             state_prompt = (init_prompt + prompt_ctx).strip()
@@ -953,7 +953,7 @@ def webshop_run(idx, prompt, to_print=True):
 # =========================================================
 # Run multiple episodes + stats / saving + ICL + LoRA SFT
 # =========================================================
-def run_episodes(base_prompt, n=200, seed: int = 42):
+def run_episodes(base_prompt, n=50, seed: int = 42):
     global SUCCESS_EPISODE_COUNT
     set_global_seed(seed)
 
