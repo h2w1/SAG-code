@@ -1,5 +1,5 @@
 
-# Selective Critique is Enough: Cost-Aware Feedback for LLM Agents in Long-Horizon Interactive Environments
+# Selective Critique for Cost-Aware LLM Agents in Long-Horizon Decision Making
 
 This repository contains the **reproduction notebooks** and minimal environment setup for three benchmarks used in our paper:
 
